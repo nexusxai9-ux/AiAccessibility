@@ -13,13 +13,18 @@ from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 from pycaw.constants import EDataFlow, ERole
-import shared_logger
-
 
 
 class NexusAssistant:
     def __init__(self):
         self.engine = pyttsx3.init()
+        self.engine.setProperty('rate', 170)
+        voices = self.engine.getProperty('voices')
+        if len(voices) > 1:
+            self.engine.setProperty('voice', voices[1].id)
+        elif len(voices) > 0:
+            self.engine.setProperty('voice', voices[0].id)
+        
         self.current_window_index = 0
         self.edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
         try:
@@ -29,7 +34,6 @@ class NexusAssistant:
 
     def speak(self, text):
         print(f"[NEXUS] {text}")
-        shared_logger.log(text)
         self.engine.say(text)
         self.engine.runAndWait()
 
@@ -142,13 +146,16 @@ class NexusAssistant:
     # --- OPTIMIZED LISTENING ---
     def listen(self):
         r = sr.Recognizer()
-        r.dynamic_energy_threshold = True
+        r.dynamic_energy_threshold = False
+        r.energy_threshold = 300
+        r.pause_threshold = 0.5
 
         with sr.Microphone() as source:
             print("\n[LISTENING...]")
             r.adjust_for_ambient_noise(source, duration=0.8)
             try:
                 audio = r.listen(source, timeout=5, phrase_time_limit=5)
+                print("[RECOGNIZING...]")
                 query = r.recognize_google(audio).lower()
                 print(f"[YOU SAID]: {query}")
                 return query
@@ -205,8 +212,8 @@ class NexusAssistant:
 
         # 5. APPS
         elif 'open' in query and 'website' not in query:
-            app = query.strip().replace("open", "", 1).strip()
-            shared_logger.log(f"Launching {app}...")
+            app = query.replace("open", "").strip()
+            self.speak(f"Launching {app}")
             pyautogui.press('win')
             time.sleep(0.5)
             pyautogui.write(app)

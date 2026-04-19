@@ -10,15 +10,17 @@ import pyttsx3
 import sys
 
 
-import shared_logger
-
+engine = pyttsx3.init()
+engine.setProperty('rate', 170)
+voices = engine.getProperty('voices')
+if len(voices) > 1:
+    engine.setProperty('voice', voices[1].id)
+elif len(voices) > 0:
+    engine.setProperty('voice', voices[0].id)
 
 def speak(text):
     print(f"[STT] {text}")
-    shared_logger.log(text)
     try:
-        engine = pyttsx3.init()
-        engine.setProperty('rate', 180)
         engine.say(text)
         engine.runAndWait()
     except:
@@ -27,6 +29,9 @@ def speak(text):
 
 def run():
     recognizer = sr.Recognizer()
+    recognizer.dynamic_energy_threshold = False
+    recognizer.energy_threshold = 300
+    recognizer.pause_threshold = 0.5
     mic = sr.Microphone()
     print("[STT] Speech-to-Text Dictation Online")
     speak("System ready. Say start dictation to begin.")
@@ -39,6 +44,7 @@ def run():
                 while True:
                     try:
                         audio = recognizer.listen(source, phrase_time_limit=3)
+                        print("[STT] Recognizing...")
                         text = recognizer.recognize_google(audio).lower()
                         if "start dictation" in text:
                             speak("Started dictation.")
@@ -51,6 +57,7 @@ def run():
                     try:
                         print("[STT] Listening...")
                         audio = recognizer.listen(source, phrase_time_limit=5)
+                        print("[STT] Recognizing...")
                         text = recognizer.recognize_google(audio).lower()
                         if "stop dictation" in text:
                             speak("Stopped dictation.")

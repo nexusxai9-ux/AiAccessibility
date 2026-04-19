@@ -2,7 +2,6 @@ import os
 import sys
 import time
 import urllib.request
-import collections
 import cv2
 import numpy as np
 import pyautogui
@@ -11,21 +10,17 @@ from mediapipe.tasks.python.core.base_options import BaseOptions
 from mediapipe.tasks.python.vision import (
     FaceLandmarker, FaceLandmarkerOptions, RunningMode)
 
-import shared_logger
-
 # ── SETTINGS ──────────────────────────────────────────────────────────────────
-SMOOTHING = 6
-SENSITIVITY = 2.5
-RECENTER_SPEED = 0.015
+# Smoothing: 0.1 (Very smooth/slow) to 0.9 (Very responsive/twitchy)
+EMA_ALPHA = 0.25
+SENSITIVITY = 3.0
+DEADZONE = 0.02  # Ignore tiny movements in the center
 
-# Tracking box
-EYE_RANGE_X = 0.14
-EYE_RANGE_Y = 0.10
-
-# Blink settings
-BLINK_THRESH = 0.22
-BLINK_COOLDOWN = 0.5
-DOUBLE_CLICK_TIME = 0.8
+# Mouth settings
+MOUTH_OPEN_THRESH = 0.35
+MIN_OPEN_TIME = 0.25  # Minimum to count as a click
+DOUBLE_CLICK_TIME = 3.0  # Time required for double click
+CLICK_COOLDOWN = 0.5
 # ──────────────────────────────────────────────────────────────────────────────
 
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/"
@@ -34,21 +29,17 @@ MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "face_landmarker.task")
 
 # Landmarks
-L_EYE_TOP = 159;
-L_EYE_BOT = 145;
-L_INNER = 133;
-L_OUTER = 33
-R_EYE_TOP = 386;
-R_EYE_BOT = 374;
-R_INNER = 362;
-R_OUTER = 263
 L_IRIS = 468;
 R_IRIS = 473
+MOUTH_TOP = 13;
+MOUTH_BOT = 14;
+MOUTH_LEFT = 78;
+MOUTH_RIGHT = 308
 
 
 def download_model():
     if os.path.exists(MODEL_PATH): return
-    print("📥 Downloading model...")
+    print("[EYE CURSOR] Downloading model...")
     urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
 
 
@@ -69,65 +60,55 @@ class EyeMouse:
         self.sw, self.sh = pyautogui.size()
         self.cam = cv2.VideoCapture(0)
 
-        self.smooth_x = collections.deque(maxlen=SMOOTHING)
-        self.smooth_y = collections.deque(maxlen=SMOOTHING)
-        self.box_cx, self.box_cy = 0.5, 0.5
-
+        # Movement state
+        self.cursor_x, self.cursor_y = self.sw / 2, self.sh / 2
         self.last_click_t = 0.0
-        self.eyes_closed_since = None
+        self.mouth_open_start = None
 
-        pyautogui.FAILSAFE = False
-        print("👁️  Eye Mouse Ready. Blink to click.")
-        shared_logger.log("Visual Tracking Online")
+        print("[EYE CURSOR] Ready. Mouth open > 3s = Double Click.")
 
-    def _get_ear(self, lms, top, bot, inner, outer):
-        v = dist(xy(lms[top]), xy(lms[bot]))
-        h = dist(xy(lms[inner]), xy(lms[outer]))
+    def _get_mar(self, lms):
+        v = dist(xy(lms[MOUTH_TOP]), xy(lms[MOUTH_BOT]))
+        h = dist(xy(lms[MOUTH_LEFT]), xy(lms[MOUTH_RIGHT]))
         return v / (h + 1e-6)
 
-    def _process_blinks(self, lms, now):
-        ear_l = self._get_ear(lms, L_EYE_TOP, L_EYE_BOT, L_INNER, L_OUTER)
-        ear_r = self._get_ear(lms, R_EYE_TOP, R_EYE_BOT, R_INNER, R_OUTER)
-        avg_ear = (ear_l + ear_r) / 2
-
-        if avg_ear < BLINK_THRESH:
-            if self.eyes_closed_since is None:
-                self.eyes_closed_since = now
-
-            if now - self.eyes_closed_since > DOUBLE_CLICK_TIME and (now - self.last_click_t) > BLINK_COOLDOWN:
-                pyautogui.doubleClick()
-                shared_logger.log("Double Click Registered")
-                self.last_click_t = now
-                self.eyes_closed_since = None
+    def _process_mouth(self, lms, now):
+        mar = self._get_mar(lms)
+        if mar > MOUTH_OPEN_THRESH:
+            if self.mouth_open_start is None:
+                self.mouth_open_start = now
         else:
-            if self.eyes_closed_since is not None:
-                duration = now - self.eyes_closed_since
-                if 0.1 < duration < DOUBLE_CLICK_TIME and (now - self.last_click_t) > BLINK_COOLDOWN:
-                    pyautogui.click()
-                    shared_logger.log("Click Registered")
+            if self.mouth_open_start is not None:
+                duration = now - self.mouth_open_start
+                self.mouth_open_start = None
+
+                if now - self.last_click_t > CLICK_COOLDOWN:
+                    if duration >= DOUBLE_CLICK_TIME:
+                        print(f"[EYE CURSOR] Double Click!")
+                        pyautogui.doubleClick()
+                    elif duration > MIN_OPEN_TIME:
+                        print(f"[EYE CURSOR] Single Click!")
+                        pyautogui.click()
                     self.last_click_t = now
-                self.eyes_closed_since = None
 
     def _move_cursor(self, lms):
-        lx, ly = xy(lms[L_IRIS])
-        rx, ry = xy(lms[R_IRIS])
+        # Average iris position
+        tx = (lms[L_IRIS].x + lms[R_IRIS].x) / 2
+        ty = (lms[L_IRIS].y + lms[R_IRIS].y) / 2
 
-        # Calculate centers correctly
-        avg_x = (lx + rx) / 2
-        avg_y = (lms[L_EYE_TOP].y + lms[R_EYE_TOP].y) / 2
+        # Map to screen space with sensitivity
+        target_x = (tx - 0.5) * SENSITIVITY * self.sw + (self.sw / 2)
+        target_y = (ty - 0.5) * SENSITIVITY * self.sh + (self.sh / 2)
 
-        self.box_cx += (avg_x - self.box_cx) * RECENTER_SPEED
-        self.box_cy += (avg_y - self.box_cy) * RECENTER_SPEED
+        # Apply Deadzone
+        if abs(target_x - self.cursor_x) < 5 and abs(target_y - self.cursor_y) < 5:
+            return
 
-        nx = (avg_x - self.box_cx) / (EYE_RANGE_X / 2)
-        ny = (avg_y - self.box_cy) / (EYE_RANGE_Y / 2)
+        # Exponential Moving Average (Smoothing)
+        self.cursor_x = self.cursor_x * (1 - EMA_ALPHA) + target_x * EMA_ALPHA
+        self.cursor_y = self.cursor_y * (1 - EMA_ALPHA) + target_y * EMA_ALPHA
 
-        tx = np.clip(0.5 + nx * SENSITIVITY * 0.5, 0.0, 1.0)
-        ty = np.clip(0.5 + ny * SENSITIVITY * 0.5, 0.0, 1.0)
-
-        self.smooth_x.append(tx * (self.sw - 1))
-        self.smooth_y.append(ty * (self.sh - 1))
-        pyautogui.moveTo(int(sum(self.smooth_x) / len(self.smooth_x)), int(sum(self.smooth_y) / len(self.smooth_y)))
+        pyautogui.moveTo(int(self.cursor_x), int(self.cursor_y))
 
     def run(self):
         while self.cam.isOpened():
@@ -140,10 +121,12 @@ class EyeMouse:
             if result.face_landmarks:
                 lms = result.face_landmarks[0]
                 self._move_cursor(lms)
-                self._process_blinks(lms, time.monotonic())
+                self._process_mouth(lms, time.monotonic())
 
-            cv2.imshow("Eye Mouse", frame)
+            if not os.environ.get("HIDE_EYE_WINDOW"):
+                cv2.imshow("Eye Mouse", frame)
             if cv2.waitKey(1) & 0xFF in (ord('q'), 27): break
+
         self.cam.release()
         cv2.destroyAllWindows()
 

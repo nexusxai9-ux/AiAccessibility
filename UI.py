@@ -6,17 +6,15 @@ import threading
 import time
 import os
 import math
-import shared_logger
 from datetime import datetime
 
 # ================== CONFIG ==================
 
 MODULES = {
-    "CORE AI": "OPEN.py",
-    "DIALOG": "ai.py",
+    "NEXUS KERNEL": "nexus_kernel.py",
     "EYE CURSOR": "eye_cursor.py",
-    "DICTATION": "DICTATION.py",
-    "MAIL": "mail.py"
+    "AI CHAT": "ai.py",
+    "MAIL SYSTEM": "mail.py"
 }
 
 ctk.set_appearance_mode("Dark")
@@ -29,8 +27,18 @@ class JarvisRotatingHUD(ctk.CTk):
         self.title("NEXUS ROTATOR")
         self.geometry("380x520")
         self.overrideredirect(True)
-        self.attributes("-topmost", True)
+        self.attributes("-topmost", False)  # Ensure it's not on top
         self.attributes("-alpha", 0.95)
+        
+        # Move to back (Windows only optimization)
+        try:
+            import ctypes
+            # HWND_BOTTOM = 1
+            # SWP_NOSIZE = 1, SWP_NOMOVE = 2, SWP_NOACTIVATE = 16
+            ctypes.windll.user32.SetWindowPos(self.winfo_id(), 1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
+        except:
+            self.lower()
+
         self.configure(fg_color="#0A0B10")
         
         # Bottom Right Position
@@ -44,6 +52,9 @@ class JarvisRotatingHUD(ctk.CTk):
 
         self.setup_ui()
         self.start_threads()
+        
+        # Auto-start all modules (DISABLED to prevent PyAudio conflicts)
+        # self.after(500, self.auto_start_modules)
 
         # Dragging
         self.bind("<ButtonPress-1>", self.start_drag)
@@ -115,6 +126,11 @@ class JarvisRotatingHUD(ctk.CTk):
             menu.add_command(label=f"{state} {name}", command=lambda n=name, f=file: self.toggle_module(n, f))
         menu.post(event.x_root, event.y_root)
 
+    def auto_start_modules(self):
+        for name, file in MODULES.items():
+            if name not in self.processes:
+                self.toggle_module(name, file)
+
     def toggle_module(self, name, file):
         if name in self.processes:
             self.processes[name].terminate()
@@ -122,27 +138,33 @@ class JarvisRotatingHUD(ctk.CTk):
             self.append_log(f"Terminated {name}")
         else:
             try:
-                p = subprocess.Popen([sys.executable, file], creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
+                flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                p = subprocess.Popen(
+                    [sys.executable, file],
+                    creationflags=flags,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1
+                )
                 self.processes[name] = p
                 self.append_log(f"Started {name}")
+                threading.Thread(target=self.read_process_output, args=(name, p), daemon=True).start()
             except Exception as e:
                 self.append_log(f"Error: {e}")
+
+    def read_process_output(self, name, process):
+        for line in iter(process.stdout.readline, ''):
+            if line:
+                # Use after to safely update UI from thread
+                self.after(0, lambda m=f"[{name}] {line.strip()}": self.append_log(m))
 
     def append_log(self, text):
         t = datetime.now().strftime("%H:%M:%S")
         self.log_box.insert("end", f"[{t}] {text}\n")
         self.log_box.see("end")
 
-    def poll_logs(self):
-        while self.is_running:
-            try:
-                msg = shared_logger.log_queue.get(timeout=0.2)
-                self.after(0, lambda m=msg: self.append_log(m))
-            except:
-                pass
-
     def start_threads(self):
-        threading.Thread(target=self.poll_logs, daemon=True).start()
         self.draw_rotating_ui()
 
     def close_ui_only(self):
