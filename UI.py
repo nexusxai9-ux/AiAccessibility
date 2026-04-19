@@ -138,6 +138,13 @@ class JarvisRotatingHUD(ctk.CTk):
             self.append_log(f"Terminated {name}")
         else:
             try:
+                # Optimized Environment for child processes to prevent OpenBLAS memory errors
+                env = os.environ.copy()
+                env["OPENBLAS_NUM_THREADS"] = "1"
+                env["MKL_NUM_THREADS"] = "1"
+                env["OMP_NUM_THREADS"] = "1"
+                env["NUMEXPR_NUM_THREADS"] = "1"
+
                 flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
                 p = subprocess.Popen(
                     [sys.executable, file],
@@ -145,7 +152,8 @@ class JarvisRotatingHUD(ctk.CTk):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
-                    bufsize=1
+                    bufsize=1,
+                    env=env
                 )
                 self.processes[name] = p
                 self.append_log(f"Started {name}")
