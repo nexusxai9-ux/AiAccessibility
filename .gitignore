@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.wav
+*.mp3
+*.task
+.idea/
+scratch/
+artifacts/
+temp_analysis.png
+screenshot_*.png
+input.wav
+response.mp3
