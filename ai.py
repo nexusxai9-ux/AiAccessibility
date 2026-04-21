@@ -2,15 +2,11 @@ import speech_recognition as sr
 import requests
 import os
 import time
-import pyttsx3
+import pygame
+from gtts import gTTS
 
-engine = pyttsx3.init()
-engine.setProperty('rate', 170)
-voices = engine.getProperty('voices')
-if len(voices) > 1:
-    engine.setProperty('voice', voices[1].id) # Select Zira (female, more natural)
-elif len(voices) > 0:
-    engine.setProperty('voice', voices[0].id)
+# Initialize pygame mixer once for efficiency
+pygame.mixer.init()
 
 
 def speak(text):
@@ -19,40 +15,42 @@ def speak(text):
 
     print(f"[ARIA] {text}")
 
-    engine.say(text)
-    engine.runAndWait()
+    # 1. Generate speech
+    filename = "response.mp3"
+    tts = gTTS(text=text, lang='en')
+    tts.save(filename)
+
+    # 2. Play using Pygame
+    try:
+        pygame.mixer.music.load(filename)
+        pygame.mixer.music.play()
+
+        # Keep the script running until the audio finishes
+        while pygame.mixer.music.get_busy():
+            time.sleep(0.1)
+
+        pygame.mixer.music.unload()  # Free the file so it can be deleted
+    except Exception as e:
+        print(f"[ARIA] Audio Error: {e}")
+    finally:
+        # 3. Cleanup: Remove the file to keep directory clean
+        if os.path.exists(filename):
+            os.remove(filename)
 
 
 def listen():
     r = sr.Recognizer()
-    r.dynamic_energy_threshold = True  # Enable dynamic thresholding for better noise adaptation
-    r.pause_threshold = 0.8
-    try:
-        with sr.Microphone() as source:
-            print("\n[ARIA] Listening...")
-            r.adjust_for_ambient_noise(source, duration=0.5)
-            try:
-                audio = r.listen(source, timeout=10, phrase_time_limit=10)
-                print("[ARIA] Recognizing...")
-                text = r.recognize_google(audio)
-                print(f"[ARIA] Detected: {text}")
-                return text
-            except sr.UnknownValueError:
-                return None
-            except sr.RequestError:
-                print("[ARIA] Google Recognition service is down or no internet.")
-                return None
-            except Exception as e:
-                print(f"[ARIA] Listen error: {e}")
-                return None
-    except OSError:
-        speak("Error: Microphone is busy. Please close other voice applications.")
-        print("[ARIA] OSError: Microphone likely in use by another script.")
-        time.sleep(2)
-        return None
-    except Exception as e:
-        print(f"[ARIA] Microphone error: {e}")
-        return None
+    with sr.Microphone() as source:
+        print("\n[ARIA] Listening...")
+        r.adjust_for_ambient_noise(source, duration=0.5)
+        try:
+            # Increased timeout to ensure the listener works
+            audio = r.listen(source, timeout=10, phrase_time_limit=10)
+            text = r.recognize_google(audio)
+            print(f"[ARIA] Detected: {text}")
+            return text
+        except Exception:
+            return None
 
 
 def ask_llama(prompt):
@@ -75,46 +73,27 @@ def ask_llama(prompt):
         return "An unexpected error occurred."
 
 
-def check_ollama():
-    try:
-        response = requests.get("http://localhost:11434/api/tags", timeout=5)
-        return response.status_code == 200
-    except:
-        return False
-
-
 def run():
-    print("[ARIA] Checking Ollama connection...")
-    if not check_ollama():
-        speak("Warning: I cannot detect Ollama running on this system. Please make sure Ollama is started.")
-    
-    speak("Nexus AI is online. I am listening for your commands.")
+    speak("Nexus AI is online. How can I help you?")
     while True:
         user_input = listen()
-        if user_input:
-            input_lower = user_input.lower()
-            
-            if "nexus" in input_lower:
-                # Clean the input to remove the wake word and everything before it
-                wake_index = input_lower.find("nexus")
-                clean_query = input_lower[wake_index + 5:].strip()
+        if user_input and "nexus" in user_input.lower():
+            # Clean the input to remove the wake word
+            clean_query = user_input.lower().replace("nexus", "").strip()
 
-                # Check for exit commands
-                if any(word in clean_query for word in ["exit", "goodbye", "stop", "quit"]):
-                    speak("Goodbye!")
-                    break
-
-                # If nothing was said after the wake word
-                if not clean_query:
-                    speak("Yes? I am listening.")
-                    continue
-
-                print(f"[ARIA] Processing: {clean_query}")
-                reply = ask_llama(clean_query)
-                speak(reply)
-            elif any(word in input_lower for word in ["go to sleep", "stop listening", "nexus exit"]):
-                speak("Moving to background.")
+            # Check for exit commands
+            if any(word in clean_query for word in ["exit", "goodbye", "stop", "quit"]):
+                speak("Goodbye!")
                 break
+
+            # If nothing was said after the wake word
+            if not clean_query:
+                speak("Yes? I am listening.")
+                continue
+
+            print(f"[ARIA] Processing: {clean_query}")
+            reply = ask_llama(clean_query)
+            speak(reply)
 
 
 if __name__ == "__main__":
@@ -122,3 +101,4 @@ if __name__ == "__main__":
         run()
     except KeyboardInterrupt:
         print("\n[ARIA] Shutting down.")
+        pygame.mixer.quit()

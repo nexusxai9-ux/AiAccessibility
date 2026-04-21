@@ -2,6 +2,7 @@ import speech_recognition as sr
 import pyttsx3
 import webbrowser
 import pyautogui
+pyautogui.FAILSAFE = False
 import time
 import cv2
 import pygetwindow as gw
@@ -18,13 +19,6 @@ from pycaw.constants import EDataFlow, ERole
 class NexusAssistant:
     def __init__(self):
         self.engine = pyttsx3.init()
-        self.engine.setProperty('rate', 170)
-        voices = self.engine.getProperty('voices')
-        if len(voices) > 1:
-            self.engine.setProperty('voice', voices[1].id)
-        elif len(voices) > 0:
-            self.engine.setProperty('voice', voices[0].id)
-        
         self.current_window_index = 0
         self.edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
         try:
@@ -146,16 +140,13 @@ class NexusAssistant:
     # --- OPTIMIZED LISTENING ---
     def listen(self):
         r = sr.Recognizer()
-        r.dynamic_energy_threshold = False
-        r.energy_threshold = 300
-        r.pause_threshold = 0.5
+        r.dynamic_energy_threshold = True
 
         with sr.Microphone() as source:
             print("\n[LISTENING...]")
             r.adjust_for_ambient_noise(source, duration=0.8)
             try:
                 audio = r.listen(source, timeout=5, phrase_time_limit=5)
-                print("[RECOGNIZING...]")
                 query = r.recognize_google(audio).lower()
                 print(f"[YOU SAID]: {query}")
                 return query

@@ -12,9 +12,7 @@ from datetime import datetime
 
 MODULES = {
     "NEXUS KERNEL": "nexus_kernel.py",
-    "EYE CURSOR": "eye_cursor.py",
-    "AI CHAT": "ai.py",
-    "MAIL SYSTEM": "mail.py"
+    "EYE CURSOR": "eye_cursor.py"
 }
 
 ctk.set_appearance_mode("Dark")
@@ -54,7 +52,7 @@ class JarvisRotatingHUD(ctk.CTk):
         self.start_threads()
         
         # Auto-start all modules (DISABLED to prevent PyAudio conflicts)
-        # self.after(500, self.auto_start_modules)
+        self.after(500, self.auto_start_modules)
 
         # Dragging
         self.bind("<ButtonPress-1>", self.start_drag)

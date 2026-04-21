@@ -5,6 +5,7 @@ import urllib.request
 import cv2
 import numpy as np
 import pyautogui
+pyautogui.FAILSAFE = False
 import mediapipe as mp
 from mediapipe.tasks.python.core.base_options import BaseOptions
 from mediapipe.tasks.python.vision import (

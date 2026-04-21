@@ -6,6 +6,7 @@ Run standalone: python modules/stt_dictation.py
 """
 import speech_recognition as sr
 import pyautogui
+pyautogui.FAILSAFE = False
 import pyttsx3
 import sys
 

@@ -23,26 +23,16 @@ import time
 # ─────────────────────────────────────────────
 
 recognizer = sr.Recognizer()
-recognizer.dynamic_energy_threshold = False
-recognizer.energy_threshold = 300
-recognizer.pause_threshold = 0.5
-
 engine = pyttsx3.init()
-engine.setProperty("rate", 170)
-voices = engine.getProperty('voices')
-if len(voices) > 1:
-    engine.setProperty('voice', voices[1].id)
-elif len(voices) > 0:
-    engine.setProperty('voice', voices[0].id)
+engine.setProperty("rate", 165)       # speaking speed
+engine.setProperty("volume", 1.0)
 
 
 def speak(text: str):
     """Convert text to speech and print it."""
-    print(f"\n[MAIL] Assistant: {text}")
-    try:
-        engine.say(text)
-        engine.runAndWait()
-    except: ...
+    print(f"\n🤖 Assistant: {text}")
+    engine.say(text)
+    engine.runAndWait()
 
 
 def listen(prompt: str = "", timeout: int = 8, phrase_limit: int = 15) -> str:
@@ -50,33 +40,27 @@ def listen(prompt: str = "", timeout: int = 8, phrase_limit: int = 15) -> str:
     Listen via microphone and return recognized text.
     Returns empty string on failure.
     """
-    if prompt: speak(prompt)
+    if prompt:
+        speak(prompt)
+
+    with sr.Microphone() as source:
+        print("🎙️  Listening...")
+        recognizer.adjust_for_ambient_noise(source, duration=0.5)
+        try:
+            audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
+        except sr.WaitTimeoutError:
+            speak("I didn't hear anything. Please try again.")
+            return ""
 
     try:
-        with sr.Microphone() as source:
-            print("[MAIL] Listening...")
-            recognizer.adjust_for_ambient_noise(source, duration=0.4)
-            try:
-                audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_limit)
-            except sr.WaitTimeoutError:
-                return ""
-    except OSError:
-        print("[MAIL] Microphone busy.")
-        return ""
-    except Exception as e:
-        print(f"[MAIL] Mic error: {e}")
-        return ""
-
-    try:
-        print("[MAIL] Recognizing...")
         text = recognizer.recognize_google(audio)
-        print(f"[MAIL] You said: {text}")
+        print(f"👤 You said: {text}")
         return text.strip()
     except sr.UnknownValueError:
-        print("[MAIL] Recognition failed.")
+        speak("Sorry, I couldn't understand that. Please repeat.")
         return ""
     except sr.RequestError:
-        print("[MAIL] Service unavailable.")
+        speak("Speech recognition service is unavailable. Check your internet connection.")
         return ""
 
 
@@ -86,9 +70,12 @@ def listen(prompt: str = "", timeout: int = 8, phrase_limit: int = 15) -> str:
 
 def extract_email(text: str) -> str:
     """Pull an email address from spoken text."""
+    # Match standard email pattern
     match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", text)
-    if match: return match.group(0)
+    if match:
+        return match.group(0)
 
+    # Handle spoken formats like "abc at gmail dot com"
     spoken = text.lower()
     spoken = re.sub(r"\bat\b", "@", spoken)
     spoken = re.sub(r"\bdot\b", ".", spoken)
@@ -99,10 +86,12 @@ def extract_email(text: str) -> str:
 
 
 def build_subject(topic: str) -> str:
+    """Capitalize and clean up the subject line."""
     return topic.strip().capitalize()
 
 
 def compose_email_body(topic: str, body_text: str) -> str:
+    """Assemble a clean email body."""
     return (
         f"Dear Recipient,\n\n"
         f"{body_text.strip()}\n\n"
@@ -115,9 +104,10 @@ def compose_email_body(topic: str, body_text: str) -> str:
 # ─────────────────────────────────────────────
 
 def send_outlook_email(to: str, subject: str, body: str):
+    """Send email using locally installed Microsoft Outlook via COM."""
     try:
         outlook = win32com.client.Dispatch("Outlook.Application")
-        mail = outlook.CreateItem(0)
+        mail = outlook.CreateItem(0)          # 0 = MailItem
         mail.To = to
         mail.Subject = subject
         mail.Body = body
@@ -125,7 +115,7 @@ def send_outlook_email(to: str, subject: str, body: str):
         return True
     except Exception as e:
         speak(f"Failed to send email. Error: {e}")
-        print(f"[MAIL] Outlook error: {e}")
+        print(f"❌ Outlook error: {e}")
         return False
 
 
@@ -138,7 +128,10 @@ def main():
 
     while True:
         command = listen(timeout=10, phrase_limit=5)
-        if not command: continue
+
+        if not command:
+            continue
+
         if "quit" in command.lower() or "exit" in command.lower():
             speak("Goodbye!")
             break
@@ -150,12 +143,18 @@ def main():
 
 
 def run_email_flow():
+    # ── Step 1: Get recipient email ──────────────────────────────────────
     to_email = ""
     attempts = 0
     while not to_email and attempts < 3:
-        raw = listen(prompt="Who do you want to send the email to? Say the email address.", timeout=8, phrase_limit=10)
+        raw = listen(
+            prompt="Who do you want to send the email to? Say the email address.",
+            timeout=8,
+            phrase_limit=10,
+        )
         to_email = extract_email(raw)
-        if not to_email: speak(f"I heard '{raw}' but couldn't find a valid email. Try again.")
+        if not to_email:
+            speak(f"I heard '{raw}' but couldn't find a valid email. Try again.")
         attempts += 1
 
     if not to_email:
@@ -164,22 +163,33 @@ def run_email_flow():
 
     speak(f"Got it. Sending to {to_email}.")
 
+    # ── Step 2: Get subject / topic ──────────────────────────────────────
     topic = ""
     while not topic:
-        topic = listen(prompt="What is this email about? Say the subject or topic.", timeout=8, phrase_limit=12)
+        topic = listen(
+            prompt="What is this email about? Say the subject or topic.",
+            timeout=8,
+            phrase_limit=12,
+        )
 
     subject = build_subject(topic)
     speak(f"Subject will be: {subject}.")
 
+    # ── Step 3: Dictate the body ─────────────────────────────────────────
     body_text = ""
     while not body_text:
-        body_text = listen(prompt="Now dictate the email body. Speak clearly.", timeout=15, phrase_limit=60)
+        body_text = listen(
+            prompt="Now dictate the email body. Speak clearly.",
+            timeout=15,
+            phrase_limit=60,
+        )
 
     body = compose_email_body(topic, body_text)
 
+    # ── Step 4: Review ───────────────────────────────────────────────────
     review = (
         f"\n{'─'*50}\n"
-        f" EMAIL PREVIEW\n"
+        f"📧 EMAIL PREVIEW\n"
         f"{'─'*50}\n"
         f"To      : {to_email}\n"
         f"Subject : {subject}\n"
@@ -188,32 +198,32 @@ def run_email_flow():
     )
     print(review)
 
-    while True:
-        speak(f"Ready to send to {to_email}. Say 'yes' to send, 'no' to cancel, or 'review' to hear it again.")
-        confirm = listen(timeout=8, phrase_limit=5).lower()
+    speak(
+        f"Here is your email. "
+        f"To: {to_email}. "
+        f"Subject: {subject}. "
+        f"Body: {body_text}. "
+        f"Say 'yes' to send, or 'no' to cancel."
+    )
 
-        if any(word in confirm for word in ["yes", "send", "okay", "yeah", "sure", "confirmed"]):
-            speak("Sending your email now.")
-            success = send_outlook_email(to_email, subject, body)
-            if success:
-                speak("Your email has been sent successfully!")
-                print("[MAIL] Email sent!")
-            else:
-                speak("I encountered an error while sending the email. Please check Outlook.")
-                print("[MAIL] Email failed to send.")
-            break
-        elif any(word in confirm for word in ["no", "cancel", "stop", "don't"]):
-            speak("Email cancelled. Say 'send email' to start again.")
-            print("[MAIL] Cancelled.")
-            break
-        elif "review" in confirm:
-            speak(f"Reviewing. Recipient: {to_email}. Subject: {subject}. Body: {body_text}.")
-            continue
-        elif not confirm:
-            continue
+    # ── Step 5: Confirm ──────────────────────────────────────────────────
+    confirm = listen(timeout=8, phrase_limit=5)
+
+    if confirm and "yes" in confirm.lower():
+        speak("Sending your email now.")
+        success = send_outlook_email(to_email, subject, body)
+        if success:
+            speak("Your email has been sent successfully!")
+            print("✅ Email sent!")
         else:
-            speak("I didn't quite catch that. Please say 'yes' to send or 'no' to cancel.")
+            print("❌ Email failed to send.")
+    else:
+        speak("Email cancelled. Say 'send email' to start again.")
+        print("🚫 Cancelled.")
 
 
+# ─────────────────────────────────────────────
+#
+# ─────────────────────────────────────────────
 if __name__ == "__main__":
     main()

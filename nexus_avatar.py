@@ -9,11 +9,8 @@ from PyQt6.QtGui import QPainter, QColor, QPen, QRadialGradient, QAction, QPaint
 
 # ================== CONFIG ==================
 MODULES = {
-    "CORE AI": "OPEN.py",
-    "DIALOG": "ai.py",
-    "EYE CURSOR": "eye_cursor.py",
-    "DICTATION": "DICTATION.py",
-    "MAIL": "mail.py"
+    "NEXUS KERNEL": "nexus_kernel.py",
+    "EYE CURSOR": "eye_cursor.py"
 }
 
 class NexusAvatar(QWidget):
@@ -46,6 +43,9 @@ class NexusAvatar(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.animate)
         self.timer.start(30) # ~33fps
+        
+        # Auto-start modules
+        QTimer.singleShot(1000, self.auto_start_modules)
         
     def animate(self):
         self.angle += 3
@@ -175,6 +175,12 @@ class NexusAvatar(QWidget):
         menu.addAction(exit_action)
         
         menu.exec(event.globalPos())
+
+    def auto_start_modules(self):
+        print("Auto-starting Nexus components...")
+        for name, file in MODULES.items():
+            if name not in self.processes:
+                self.toggle_module(name, file)
 
     def toggle_module(self, name, file):
         if name in self.processes:
