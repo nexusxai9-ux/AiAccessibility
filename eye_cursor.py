@@ -134,4 +134,3 @@ class EyeMouse:
 
 if __name__ == "__main__":
     EyeMouse().run()
-    /
