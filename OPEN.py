@@ -299,4 +299,3 @@ class NexusAssistant:
 if __name__ == "__main__":
     nexus = NexusAssistant()
     nexus.run()
-    /
