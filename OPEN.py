@@ -20,7 +20,12 @@ class NexusAssistant:
     def __init__(self):
         self.engine = pyttsx3.init()
         self.current_window_index = 0
-        self.edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+        import json
+
+        with open("config.json") as f:
+            data = json.load(f)
+
+        self.edge_path = data["browser"]
         try:
             webbrowser.register('edge', None, webbrowser.BackgroundBrowser(self.edge_path))
         except Exception as e:
@@ -97,7 +102,11 @@ class NexusAssistant:
 
     def perform_shutdown(self):
         self.speak("Shutting down the system in 5 seconds.")
-        os.system("shutdown /s /t 5")
+        self.speak("Do you want to shutdown?")
+        confirm = self.listen()
+
+        if "yes" in confirm:
+            os.system("shutdown /s /t 5")
         return False
 
     def close_target(self, target):
